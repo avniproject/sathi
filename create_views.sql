@@ -34,23 +34,24 @@ create view sathi_address_view as (
       and not district.is_voided
 );
 
-create or replace function sathi_aggregate_for_coded_concept(conceptName TEXT, subjectName Text, blockNames text,
-                                                             startDate date, endDate date)
+create or replace function sathi_reg_agg_for_coded(conceptName TEXT, subjectName Text, blockNames text,
+                                                   startDate date, endDate date)
     returns table
             (
-                concept_name text,
-                मोजा         bigint,
-                "टक्केवारी"  numeric,
-                "ओळ यादी"    text
+                "उत्तर"     text,
+                मोजा        bigint,
+                "टक्केवारी" numeric,
+                "ओळ यादी"   text
             )
 as
 $body$
 with data as (select answer_concept_name                                         indicator,
-                     count(*) filter ( where multi_select_coded(observations -> concept_uuid(conceptName)) like
-                                             '%' || answer_concept_name || '%' ) count,
-                     (select count(*)
-                      from sathi_registration_view
-                      where subject_name = subjectName)                          total
+                     count(*) filter ( where case
+                                                 when jsonb_typeof(observations -> concept_uuid) =
+                                                      'array'
+                                                     then (observations -> concept_uuid) @>  to_jsonb(answer_concept_uuid)
+                                                 else observations ->> concept_uuid = answer_concept_uuid end) count,
+                     count(distinct id)                                          total
               from concept_concept_answer
                        left join sathi_registration_view on true
               where concept_name = conceptName
