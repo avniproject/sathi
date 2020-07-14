@@ -70,3 +70,50 @@ select translated_value('mr_IN', indicator),
 from data
 $body$
     language sql;
+
+--sample ranges jsonb example
+--'[{"name": "<5", "max": 4.99, "row": 1 }, { "name": "5 to 10", "min": 5, "max": 10, "row": 2 }, { "name": ">10", "min": 10.001, "row": 3 } ]'::jsonb
+create or replace function sathi_reg_agg_for_Integer(conceptName TEXT, subjectName Text, ranges jsonb, blockNames text,
+                                                     startDate date, endDate date)
+    returns table
+            (
+                "उत्तर"     text,
+                मोजा        bigint,
+                "टक्केवारी" numeric,
+                "ओळ यादी"   text
+            )
+as
+$body$
+with data as (select my_range ->> 'name'                                                                                                                                       indicator,
+                     my_range ->> 'min'                                                                                                                                        min_range,
+                     my_range ->> 'max'                                                                                                                                        max_range,
+                     my_range ->> 'row'                                                                                                                                        row_order,
+                     count(*)
+                     filter ( where case
+                                        when my_range ->> 'min' isnull then
+                                                (observations ->> concept_uuid(conceptName))::numeric <=
+                                                (my_range ->> 'max')::numeric
+                                        when my_range ->> 'max' isnull then
+                                                (observations ->> concept_uuid(conceptName))::numeric >=
+                                                (my_range ->> 'min')::numeric
+                                        else
+                                            (observations ->> concept_uuid(conceptName))::numeric between (my_range ->> 'min')::numeric and (my_range ->> 'max')::numeric end) count,
+                     count(distinct id)                                                                                                                                        total
+              from jsonb_array_elements(ranges) my_range
+                       cross join sathi_registration_view
+              where subject_name = subjectName
+                and block = ANY (STRING_TO_ARRAY(blockNames, ','))
+                and registration_date between startDate and endDate
+              group by 1, 2, 3, 4
+)
+select indicator,
+       count,
+       ((count * 100.0) / total),
+       'https://reporting.avniproject.org/question/879?subject_name=' ||
+       subjectName || '&concept_name=' || conceptName ||
+       '&min_range=' || coalesce(min_range, 'null') || '&max_range=' || coalesce(max_range, 'null') || '&block=' ||
+       blockNames || '&start_date=' || startDate::date || '&end_date=' || endDate::date
+from data
+order by row_order
+$body$
+    language sql;
